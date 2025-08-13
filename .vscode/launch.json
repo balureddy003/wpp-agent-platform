@@ -1,57 +1,103 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        
-        {
-            "name": "Python Debugger: Current File",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
-            "justMyCode": false
-        },
-        {
-            "name": "Python: Run main.py with local imports",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/backend/src/app.py",
-            "cwd": "${workspaceFolder}/src/backend/src",
-            "justMyCode": false
-        },
-        {
-            "name": "Debug Pytest",
-            "type": "python",
-            "request": "launch",
-            "module": "pytest",
-            "args": [
-                "${workspaceFolder}/src/backend/src/test/test_chat.py",
-                "-s",
-                "-v"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}/src/backend/src",
-            "justMyCode": false
-        },
-        {
-            "name": "Python: Run groupchat_client.py as a module",
-            "type": "python",
-            "request": "launch",
-            "module": "sk_orchestration_scripts.groupchat_client",
-            "cwd": "${workspaceFolder}/src/backend/src",
-            "console": "integratedTerminal",
-            "justMyCode": false
-        },
-        {
-            "name": "Python: Run handoff_client.py as a module",
-            "type": "python",
-            "request": "launch",
-            "module": "sk_orchestration_scripts.handoff_client",
-            "cwd": "${workspaceFolder}/src/backend/src",
-            "console": "integratedTerminal",
-            "justMyCode": false
+      {
+        "name": "Python Debugger: Current File",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${file}",
+        "console": "integratedTerminal",
+        "justMyCode": false,
+        "serverReadyAction": {
+          "pattern": "Uvicorn running on (http://\\S+)",
+          "uriFormat": "%s",
+          "action": "openExternally"
         }
+      },
+      {
+        "name": "Python: Run main.py with local imports",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/src/backend/src/app.py",
+        "cwd": "${workspaceFolder}/src/backend/src",
+        "preLaunchTask": "Dev: prerequisites",
+        "env": {
+          "AZURE_IDENTITY_DISABLE_BROKER": "1",
+          "USE_MI_AUTH": "false",
+          "HOME": "/Users/balu",
+          "AZURE_CONFIG_DIR": "/Users/balu/.azure",
+          "PATH": "${env:PATH}:/opt/homebrew/bin"
+        },
+        "justMyCode": false,
+        "serverReadyAction": {
+          "pattern": "Uvicorn running on (http://\\S+)",
+          "uriFormat": "%s",
+          "action": "openExternally"
+        }
+      },
+      {
+        "name": "Debug Pytest",
+        "type": "python",
+        "request": "launch",
+        "module": "pytest",
+        "args": [
+          "${workspaceFolder}/src/backend/src/test/test_chat.py",
+          "-s",
+          "-v"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}/src/backend/src",
+        "justMyCode": false
+      },
+      {
+        "name": "Python: Run groupchat_client.py as a module",
+        "type": "python",
+        "request": "launch",
+        "module": "sk_orchestration_scripts.groupchat_client",
+        "cwd": "${workspaceFolder}/src/backend/src",
+        "console": "integratedTerminal",
+        "justMyCode": false,
+        "preLaunchTask": "AZ CLI: ensure login"
+      },
+      {
+        "name": "Python: Run handoff_client.py as a module",
+        "type": "python",
+        "request": "launch",
+        "module": "sk_orchestration_scripts.handoff_client",
+        "cwd": "${workspaceFolder}/src/backend/src",
+        "console": "integratedTerminal",
+        "justMyCode": false
+      },
+      {
+        "name": "Backend: uv (env-file) → uvicorn reload",
+        "type": "python",
+        "request": "launch",
+        "module": "uvicorn",
+        "args": [
+          "unified_app:app",
+          "--reload",
+          "--host", "127.0.0.1",
+          "--port", "8000"
+        ],
+        "cwd": "${workspaceFolder}/src/backend",
+        "env": {
+          "PYTHONPATH": "src",
+          "AZURE_IDENTITY_DISABLE_BROKER": "1",
+          "USE_MI_AUTH": "false",
+          "HOME": "/Users/balu",
+          "AZURE_CONFIG_DIR": "/Users/balu/.azure",
+          "PATH": "${env:PATH}:/opt/homebrew/bin"
+        },
+        "envFile": "${workspaceFolder}/src/backend/src/.env",
+        "python": "${workspaceFolder}/src/backend/.venv/bin/python",
+        "console": "integratedTerminal",
+        "justMyCode": false,
+        "preLaunchTask": "Dev: prerequisites",
+        "serverReadyAction": {
+          "pattern": "Uvicorn running on (http://\\S+)",
+          "uriFormat": "%s",
+          "action": "openExternally"
+        }
+      }
     ]
-}
+  }

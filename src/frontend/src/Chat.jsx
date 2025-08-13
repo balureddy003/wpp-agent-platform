@@ -1,134 +1,96 @@
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
-import { useState, useEffect, useRef } from 'react';
-import Markdown from 'react-markdown'
+import { useState } from "react";
 
-const Chat = () => {
-    const [messages, setMessages] = useState([]);
-    const [isTyping, setIsTyping] = useState(false);
-    const [needMoreInfo, setNeedMoreInfo] = useState(false);
-
-    const messageEndRef = useRef(null);
-    const welcomeMessage = 'Ask a question...';
-
-    const scrollToBottom = () => {
-        messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    };
-
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
-
-    const createSystemInput = (userMessageContent) => {
-
-        const lastTwoMessages = messages.slice(-2);
-
-        const historyMessages = needMoreInfo ? lastTwoMessages : [];
-        console.log(historyMessages);
-
-        return {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            },
-            body: JSON.stringify({
-                message: userMessageContent,
-                history: historyMessages,
-            })
-        };
-    };
-
-    const parseSystemResponse = (systemResponse) => {
-        return {
-            messages: systemResponse["messages"] || [],
-            needMoreInfo: systemResponse["need_more_info"] || false
-        };
-    };
-
-    const chatWithSystem = async (userMessageContent) => {
-        try {
-            const response = await fetch(
-                `/chat`,
-                createSystemInput(userMessageContent)
-            );
-
-            if (!response.ok) {
-                throw new Error("Oops! Bad chat response.");
-            }
-
-            const systemResponse = await response.json();
-            const { messages, needMoreInfo } = parseSystemResponse(systemResponse);
-
-            console.log("System messages:", messages);
-            setNeedMoreInfo(needMoreInfo);
-
-            return { messages };
-        } catch (error) {
-            console.error("Error while processing chat: ", error);
-            return { messages: [] };
-        }
-    };
-
-    const handleSendMessage = async (userMessageContent) => {
-        setMessages((prevMessages) => [
-            ...prevMessages, { role: "User", content: userMessageContent }
-        ]);
-
-        setIsTyping(true);
-        const { messages: systemMessages } = await chatWithSystem(userMessageContent);
-        setIsTyping(false);
-
-        for (const msg of systemMessages) {
-            setMessages((prevMessages) => [
-                ...prevMessages, 
-                { role: "System", content: msg }
-            ]);
-        }
-    };
-
-    return (
-        <div className="chat-container">
-            <div className="chat-messages">
-                {messages.length == 0 && (<div className="message.content">{welcomeMessage}</div>)}
-                {messages.map((message, index) => (
-                    <div key={index} tabindex="0" className={message.role === 'user' ? "message.user" : "message.agent"}>
-                        <div className="message">
-                            <h3 className="message-header">{message.role}</h3>
-                            <Markdown className="message.content">{message.content}</Markdown>
-                        </div>
-                    </div>
-                ))}
-                {isTyping && <p className="message">System is typing...</p>}
-                <div ref={messageEndRef}/>
-            </div>
-            <form
-                className="chat-input-form"
-                onSubmit={(e) => {
-                    e.preventDefault();
-                    const input = e.target.input.value;
-                    if (input.trim() != "") {
-                        handleSendMessage(input);
-                        e.target.reset();
-                    }
-                }}
-                aria-label="Chat Input Form"
-            >
-                <input
-                    className="chat-input"
-                    type="text"
-                    name="input"
-                    placeholder="Type your message..."
-                    disabled={isTyping}/>
-                <button
-                    className="chat-submit-button" 
-                    type="submit"
-                >
-                    Send
-                </button>
-            </form>
-        </div>
-    );
+function normalizeAssistantContent(payload) {
+  try {
+    if (typeof payload === "string") return payload;
+    if (!payload || typeof payload !== "object") return "";
+    if (payload.content) return payload.content;
+    if (payload.message) return payload.message;
+    if (Array.isArray(payload.messages)) {
+      // messages can be ["text", ...] or [{content:"..."}|{text:"..."}|"..."]
+      const parts = payload.messages.map((m) => {
+        if (typeof m === "string") return m;
+        if (!m || typeof m !== "object") return "";
+        return m.content ?? m.text ?? "";
+      }).filter(Boolean);
+      return parts.join("\n\n");
+    }
+    if (Array.isArray(payload.responses)) return payload.responses.filter(Boolean).join("\n\n");
+    if (payload.choices?.[0]?.message?.content) return payload.choices[0].message.content;
+    if (payload.output_text) return payload.output_text;
+    if (payload.answer) return payload.answer;
+    if (payload.data?.content) return payload.data.content;
+    // last resort: show JSON so we can see the shape
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return "";
+  }
 }
 
-export default Chat;
+const API_BASE = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_BASE ?? "");
+
+export default function Chat() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    const userMsg = { role: "user", content: input };
+    setMessages((m) => [...m, userMsg]);
+    setInput("");
+
+    try {
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: userMsg.content,
+          language: "en",
+          session_id: crypto.randomUUID()
+        })
+      });
+
+      const contentType = res.headers.get("content-type") || "";
+      const payload = contentType.includes("application/json") ? await res.json() : await res.text();
+
+      if (!res.ok) {
+        const errMsg = typeof payload === "string" ? payload : (payload?.detail || payload?.error || JSON.stringify(payload));
+        throw new Error(errMsg || `HTTP ${res.status}`);
+      }
+
+      const assistantText = normalizeAssistantContent(payload);
+      setMessages((m) => [...m, { role: "assistant", content: assistantText }]);
+    } catch (err) {
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: `Error: ${err?.message || String(err)}` }
+      ]);
+    }
+  }
+
+  return (
+    <div className="chat-container">
+      <div className="chat-header">Conversational Agent</div>
+      <div className="chat-disclaimer">This is a demo. Responses may be inaccurate.</div>
+
+      <div className="chat-messages">
+        {messages.map((msg, i) => (
+          <div key={i} className={`message ${msg.role}`}>
+            <div className="message-header">{msg.role === "user" ? "You" : "Agent"}</div>
+            <p className="message-content">{msg.content}</p>
+          </div>
+        ))}
+      </div>
+
+      <form className="chat-input-form" onSubmit={onSubmit}>
+        <input
+          className="chat-input"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Type your message…"
+        />
+        <button className="chat-submit-button" type="submit">Send</button>
+      </form>
+    </div>
+  );
+}

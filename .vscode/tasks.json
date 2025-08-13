@@ -1,0 +1,16 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Dev: prerequisites",
+        "type": "shell",
+        "command": "/bin/bash",
+        "args": [
+          "-lc",
+          "az account show >/dev/null 2>&1 || az login --use-device-code"
+        ],
+        "problemMatcher": [],
+        "presentation": { "reveal": "always" }
+      }
+    ]
+  }

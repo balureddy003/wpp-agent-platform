@@ -9,6 +9,13 @@ from azure.identity import get_bearer_token_provider
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizableTextQuery
 from utils import get_azure_credential
+from pathlib import Path
+
+DEFAULT_RAG_GROUNDING_PROMPT = (
+    "Use the SOURCES below to answer the USER QUERY.\n"
+    "Only use information from SOURCES. If the answer is not present, reply \"I don't know\".\n\n"
+    "USER QUERY:\n{query}\n\nSOURCES:\n{sources}\n"
+)
 
 def get_prompt(
     prompt: str,
@@ -16,10 +23,33 @@ def get_prompt(
 ) -> str:
     """
     Load prompt.
+    Tries several common locations and falls back to a built-in default
+    if the file is not found.
     """
-    with open(path + prompt, 'r') as fp:
-        content = fp.read()
-    return content
+    logger = logging.getLogger(__name__)
+
+    candidates = []
+    # Caller-provided path first
+    if path:
+        candidates.append(Path(path) / prompt)
+
+    # File-relative prompts dir
+    here = Path(__file__).resolve().parent
+    candidates.append(here / "prompts" / prompt)
+
+    # Common project layouts
+    candidates.append(Path.cwd() / "src" / "prompts" / prompt)
+    candidates.append(Path.cwd() / "prompts" / prompt)
+
+    for p in candidates:
+        try:
+            with open(p, "r", encoding="utf-8") as fp:
+                return fp.read()
+        except FileNotFoundError:
+            continue
+
+    logger.warning(f"Prompt file not found: {prompt}; using built-in default.")
+    return DEFAULT_RAG_GROUNDING_PROMPT
 
 
 RAG_GROUNDING_PROMPT = get_prompt("rag_grounding.txt")
@@ -138,6 +168,10 @@ class AOAIClient(AzureOpenAI):
         """
         Generates RAG grounding prompt given query and search client.
         """
+        if not self.search_client:
+            self.logger.warning("RAG enabled but no SearchClient; falling back to empty sources.")
+            return RAG_GROUNDING_PROMPT.format(query=query, sources="")
+
         self.logger.info("Calling search client")
         vector_query = VectorizableTextQuery(
             text=query,

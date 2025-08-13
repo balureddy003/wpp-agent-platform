@@ -3,6 +3,7 @@
 import os
 import json
 import logging
+from pathlib import Path
 from typing import Callable
 from azure.ai.agents import AgentsClient
 from azure.ai.agents.models import ListSortOrder, AgentThread
@@ -12,23 +13,51 @@ from utils import get_azure_credential
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.INFO)
 
+
 PII_ENABLED = os.environ.get("PII_ENABLED", "false").lower() == "true"
-CONFIG_DIR = os.environ.get("CONFIG_DIR", ".")
+# Resolve config.json (robust search)
+CONFIG_DIR = os.environ.get("CONFIG_DIR")  # optional override
+AGENT_IDS = {}
+_config_search_dirs = []
+_here = Path(__file__).resolve().parent  # .../src/router
 
-# Load agent IDs from config file
-config_file = os.path.join(CONFIG_DIR, "config.json")
-if os.path.exists(config_file):
-    with open(config_file, "r") as f:
-        AGENT_IDS = json.load(f)
-else:
-    AGENT_IDS = {}
+if CONFIG_DIR:
+    _config_search_dirs.append(Path(CONFIG_DIR))
 
-# Use env variable for local testing
-# triage_agent_id = os.environ.get("TRIAGE_AGENT_ID")
-triage_agent_id = AGENT_IDS.get("TRIAGE_AGENT_ID")
+# Common locations relative to this file and CWD
+_config_search_dirs += [
+    _here / "config",                # src/router/config
+    _here.parent / "config",         # src/config (recommended)
+    Path.cwd() / "src" / "config",   # <cwd>/src/config
+    Path.cwd() / "config",           # <cwd>/config
+    Path.cwd(),                       # <cwd>
+]
+
+_config_candidates = [d / "config.json" for d in _config_search_dirs]
+_loaded_config_path = None
+for c in _config_candidates:
+    if c.exists():
+        with open(c, "r", encoding="utf-8") as f:
+            AGENT_IDS = json.load(f)
+        _loaded_config_path = str(c)
+        _logger.info(f"Loaded agent IDs from {_loaded_config_path}")
+        break
+
+if not AGENT_IDS:
+    _logger.warning(
+        "config.json not found. Searched: %s",
+        [str(p) for p in _config_candidates]
+    )
+
+# Allow env override; fall back to config.json
+triage_agent_id = os.environ.get("TRIAGE_AGENT_ID") or AGENT_IDS.get("TRIAGE_AGENT_ID")
 if not triage_agent_id:
-    error_msg = "Missing required agent ID: TRIAGE_AGENT_ID"
-    logging.error(error_msg)
+    searched_paths = ", ".join(str(p) for p in _config_candidates)
+    error_msg = (
+        "Missing required agent ID 'TRIAGE_AGENT_ID'. Set it as an environment variable "
+        "or provide it in config.json. Searched paths: " + searched_paths
+    )
+    _logger.error(error_msg)
     raise ValueError(error_msg)
 
 

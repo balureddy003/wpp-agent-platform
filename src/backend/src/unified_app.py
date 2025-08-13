@@ -3,6 +3,9 @@
 import os
 import json
 import importlib
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).with_name(".env"))
 import pii_redacter
 from json import JSONDecodeError
 from fastapi import FastAPI, Request
@@ -13,7 +16,7 @@ from aoai_client import AOAIClient, get_prompt
 from router.router_type import RouterType
 from unified_conversation_orchestrator import UnifiedConversationOrchestrator
 from utils import get_azure_credential
-
+from fastapi.middleware.cors import CORSMiddleware
 
 DIST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "dist"))
 # log dist_dir
@@ -22,7 +25,14 @@ print(f"DIST_DIR: {DIST_DIR}")
 
 # FastAPI app:
 app = FastAPI()
-app.mount("/assets", StaticFiles(directory=os.path.join(DIST_DIR, "assets")), name="assets")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+#app.mount("/assets", StaticFiles(directory=os.path.join(DIST_DIR, "assets")), name="assets")
 
 
 # RAG AOAI client:
