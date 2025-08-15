@@ -9,3 +9,9 @@ azure-ai-textanalytics
 azure-ai-language-conversations
 azure-ai-language-questionanswering
 semantic-kernel
+bs4
+playwright
+pymongo
+pymongo
+beautifulsoup4 
+pyairtable

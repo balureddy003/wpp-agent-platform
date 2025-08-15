@@ -16,75 +16,67 @@ from utils import get_azure_credential
 from aoai_client import AOAIClient, get_prompt
 from azure.search.documents import SearchClient
 
-from typing import List
+from typing import List, Dict, Any
 
-# Run locally with `uvicorn app:app --reload --host 127.0.0.1 --port 7000`
-# Comment out for local testing:
-# from dotenv import load_dotenv
-# load_dotenv()
+# ---- Multi-index support helpers -------------------------------------------------
 
+def _parse_search_index_names() -> List[str]:
+    """Read SEARCH_INDEX_NAMES (comma-separated) or fallback to SEARCH_INDEX_NAME."""
+    raw = os.environ.get("SEARCH_INDEX_NAMES") or os.environ.get("SEARCH_INDEX_NAME")
+    if not raw:
+        return []
+    if "," in raw:
+        return [n.strip() for n in raw.split(",") if n.strip()]
+    return [raw.strip()]
 
-class ChatMessage(BaseModel):
-    role: str
-    content: str
+class MultiIndexSearch:
+    """Minimal adapter exposing a SearchClient-like .search() over multiple indexes.
+    It calls each index and merges the top results by score.
+    """
+    def __init__(self, endpoint: str, index_names: List[str], credential):
+        from azure.search.documents import SearchClient
+        self.clients = [SearchClient(endpoint=endpoint, index_name=name, credential=credential) for name in index_names]
+        self.index_names = index_names
 
+    def _score(self, item: Any) -> float:
+        try:
+            # SearchResult behaves like a dict
+            return float(item.get("@search.score", 0.0))
+        except Exception:
+            try:
+                return float(item["@search.score"])  # type: ignore[index]
+            except Exception:
+                return 0.0
 
-# Initialize structure for holding chat requests
-class ChatRequest(BaseModel):
-    message: str
-    history: List[ChatMessage]
+    def search(self, *args, **kwargs):
+        top = int(kwargs.get("top", 5) or 5)
+        merged = []
+        for client in self.clients:
+            try:
+                results = client.search(*args, **kwargs)
+                for r in results:
+                    merged.append(r)
+            except Exception as e:
+                print(f"[multi-index] search error on {client.index_name}: {e}")
+                continue
+        # sort by score desc if available
+        try:
+            merged.sort(key=self._score, reverse=True)
+        except Exception:
+            pass
+        return merged[:top]
 
-
-# Environment variables
-PROJECT_ENDPOINT = os.environ.get("AGENTS_PROJECT_ENDPOINT")
-MODEL_NAME = os.environ.get("AOAI_DEPLOYMENT")
-CONFIG_DIR = os.environ.get("CONFIG_DIR", ".")
-config_file = os.path.join(CONFIG_DIR, "config.json")
-
-# Read config.json file from the config directory
-if os.path.exists(config_file):
-    with open(config_file, "r") as f:
-        AGENT_IDS = json.load(f)
+# Initialize the Azure Search client (multi-index aware)
+_search_endpoint = os.environ.get("SEARCH_ENDPOINT")
+_index_names = _parse_search_index_names()
+_credential = get_azure_credential()
+if not _index_names:
+    raise ValueError("No search index configured. Set SEARCH_INDEX_NAME or SEARCH_INDEX_NAMES.")
+if len(_index_names) == 1:
+    search_client = SearchClient(endpoint=_search_endpoint, index_name=_index_names[0], credential=_credential)
 else:
-    AGENT_IDS = {}
-
-# Comment out for local testing:
-# AGENT_IDS = {
-#     "TRIAGE_AGENT_ID": os.environ.get("TRIAGE_AGENT_ID"),
-#     "HEAD_SUPPORT_AGENT_ID": os.environ.get("HEAD_SUPPORT_AGENT_ID"),
-#     "ORDER_STATUS_AGENT_ID": os.environ.get("ORDER_STATUS_AGENT_ID"),
-#     "ORDER_CANCEL_AGENT_ID": os.environ.get("ORDER_CANCEL_AGENT_ID"),
-#     "ORDER_REFUND_AGENT_ID": os.environ.get("ORDER_REFUND_AGENT_ID"),
-#     "TRANSLATION_AGENT_ID": os.environ.get("TRANSLATION_AGENT_ID"),
-# }
-
-# Check if all required agent IDs are present
-required_agents = [
-    "TRIAGE_AGENT_ID",
-    "HEAD_SUPPORT_AGENT_ID",
-    "ORDER_STATUS_AGENT_ID",
-    "ORDER_CANCEL_AGENT_ID",
-    "ORDER_REFUND_AGENT_ID"
-]
-
-missing_agents = [agent for agent in required_agents if not AGENT_IDS.get(agent)]
-if missing_agents:
-    error_msg = f"Missing required agent IDs: {', '.join(missing_agents)}"
-    logging.error(error_msg)
-    raise ValueError(error_msg)
-
-DIST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "dist"))
-# log dist_dir
-print(f"DIST_DIR: {DIST_DIR}")
-
-
-# Initialize the Azure Search client
-search_client = SearchClient(
-    endpoint=os.environ.get("SEARCH_ENDPOINT"),
-    index_name=os.environ.get("SEARCH_INDEX_NAME"),
-    credential=get_azure_credential()
-)
-print("Search client initialized.")
+    search_client = MultiIndexSearch(endpoint=_search_endpoint, index_names=_index_names, credential=_credential)
+print(f"Search client initialized for indexes: {', '.join(_index_names)}")
 
 # RAG AOAI client:
 rag_client = AOAIClient(
